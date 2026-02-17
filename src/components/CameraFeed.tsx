@@ -63,7 +63,7 @@ export default function CameraFeed({ onMemeChange }: CameraFeedProps) {
 
   const { debug } = useDebug();
 
-  // Draw landmarks onto canvas
+  // Draw landmarks onto canvas (face)
   const drawLandmarks = (landmarks: any[], video: HTMLVideoElement) => {
     const canvas = canvasRef.current;
     if (!canvas || !landmarks || !video) return;
@@ -94,14 +94,65 @@ export default function CameraFeed({ onMemeChange }: CameraFeedProps) {
     }
   };
 
+  // Draw hand landmarks and optionally show gesture label
+  const drawHandLandmarks = (handAnalyses: any[], video: HTMLVideoElement) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !handAnalyses || !video) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Resize if necessary
+    const vw = video.videoWidth || video.clientWidth;
+    const vh = video.videoHeight || video.clientHeight;
+    if (canvas.width !== vw || canvas.height !== vh) {
+      canvas.width = vw;
+      canvas.height = vh;
+    }
+
+    // For each detected hand, draw its landmarks and label
+    for (let h = 0; h < handAnalyses.length; h++) {
+      const ha = handAnalyses[h];
+      const landmarks = ha.landmarks;
+      // color per hand
+      const colors = ['rgba(255,160,0,0.95)', 'rgba(0,200,120,0.95)'];
+      const color = colors[h % colors.length];
+      ctx.fillStyle = color;
+      for (let i = 0; i < landmarks.length; i++) {
+        const p = landmarks[i];
+        const x = p.x * canvas.width;
+        const y = p.y * canvas.height;
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Draw gesture label near wrist
+      const wrist = landmarks[0];
+      if (wrist) {
+        const lx = wrist.x * canvas.width;
+        const ly = wrist.y * canvas.height - 10;
+        ctx.font = '14px Arial';
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 3;
+        ctx.strokeText(ha.gesture || 'unknown', lx, ly);
+        ctx.fillText(ha.gesture || 'unknown', lx, ly);
+      }
+    }
+  };
+
   // Process frames for MediaPipe detection and draw landmarks
   useEffect(() => {
     if (!videoRef.current || !isInitialized || loading) return;
 
     const processVideoFrame = () => {
-      const landmarks = processFrame(videoRef.current!);
-      if (debug && landmarks && canvasRef.current) {
-        drawLandmarks(landmarks, videoRef.current!);
+      const res = processFrame(videoRef.current!);
+      if (debug && res && canvasRef.current) {
+        // face landmarks
+        if (res.faceLandmarks) drawLandmarks(res.faceLandmarks, videoRef.current!);
+        // hand analyses contain landmarks + gesture
+        if (res.handAnalyses && res.handAnalyses.length > 0) drawHandLandmarks(res.handAnalyses, videoRef.current!);
       } else if (canvasRef.current) {
         // Clear canvas if debug is off or no landmarks
         const ctx = canvasRef.current.getContext('2d');
