@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import * as Mediapipe from '@mediapipe/tasks-vision';
 import { MEME_DATABASE } from '@/constants/memeDatabase';
 import { mapExpressionToMeme } from '@/lib/expressionMapper';
+import { analyzeHands, extractHandLandmarksFromResult } from '@/lib/handGestureMapper';
 
 interface DetectedMeme {
   id: string;
@@ -14,6 +15,7 @@ export function useMediaPipe(onMemeChange: (memeId: string | null) => void) {
   const [isInitialized, setIsInitialized] = useState(false);
   const [detectedMeme, setDetectedMeme] = useState<DetectedMeme | null>(null);
   const faceLandmarkerRef = useRef<any>(null);
+  const handLandmarkerRef = useRef<any>(null);
   const lastMemeIdRef = useRef<string | null>(null);
   const frameCountRef = useRef(0);
   const isMobileRef = useRef<boolean>(false);
@@ -40,6 +42,24 @@ export function useMediaPipe(onMemeChange: (memeId: string | null) => void) {
         );
 
         faceLandmarkerRef.current = faceLandmarker;
+
+        // Initialize Hand Landmarker for up to 2 hands
+        try {
+          const handLandmarker = await (Mediapipe as any).HandLandmarker.createFromOptions(
+            vision,
+            {
+              baseOptions: {
+                modelAssetPath: `https://storage.googleapis.com/mediapipe-models/vision_hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+              },
+              runningMode: 'VIDEO',
+              numHands: 2,
+            }
+          );
+          handLandmarkerRef.current = handLandmarker;
+        } catch (e) {
+          console.warn('Hand Landmarker failed to initialize:', e);
+          handLandmarkerRef.current = null;
+        }
         setIsInitialized(true);
         // Detect roughly if device is mobile (small viewport)
         if (typeof window !== 'undefined') {
@@ -56,6 +76,9 @@ export function useMediaPipe(onMemeChange: (memeId: string | null) => void) {
     return () => {
       if (faceLandmarkerRef.current) {
         faceLandmarkerRef.current.close();
+      }
+      if (handLandmarkerRef.current) {
+        try { handLandmarkerRef.current.close(); } catch(e) { /* ignore */ }
       }
     };
   }, []);
@@ -77,14 +100,13 @@ export function useMediaPipe(onMemeChange: (memeId: string | null) => void) {
       const now = performance.now();
 
       // Run face detection
-      const results = faceLandmarkerRef.current.detectForVideo(videoElement, now);
-
-      if (results && results.faceLandmarks && results.faceLandmarks.length > 0) {
-        // Get the first face landmarks
-        const landmarks = results.faceLandmarks[0];
+      const faceResults = faceLandmarkerRef.current.detectForVideo(videoElement, now);
+      let faceLandmarks = null;
+      if (faceResults && faceResults.faceLandmarks && faceResults.faceLandmarks.length > 0) {
+        faceLandmarks = faceResults.faceLandmarks[0];
 
         // Map landmarks to expression and find matching meme
-        const memeId = mapExpressionToMeme(landmarks);
+        const memeId = mapExpressionToMeme(faceLandmarks);
         const meme = MEME_DATABASE.find((m) => m.id === memeId);
 
         if (meme && meme.id !== lastMemeIdRef.current) {
@@ -92,18 +114,30 @@ export function useMediaPipe(onMemeChange: (memeId: string | null) => void) {
           setDetectedMeme({ id: meme.id, name: meme.name });
           onMemeChange(meme.id);
         }
-
-        // Return landmarks for drawing
-        return landmarks;
       } else {
-        // No face detected
         if (lastMemeIdRef.current !== null) {
           lastMemeIdRef.current = null;
           setDetectedMeme(null);
           onMemeChange(null);
         }
-        return null;
       }
+
+      // Run hand detection (if available)
+      let handLandmarksArray: any[] | null = null;
+      if (handLandmarkerRef.current) {
+        try {
+          const handResults = handLandmarkerRef.current.detectForVideo(videoElement, now);
+          handLandmarksArray = extractHandLandmarksFromResult(handResults?.handLandmarks || handResults);
+        } catch (e) {
+          // non-fatal: keep going
+          handLandmarksArray = null;
+        }
+      }
+
+      // Analyze hand gestures (simple heuristics)
+      const handAnalyses = analyzeHands(faceLandmarks, handLandmarksArray);
+
+      return { faceLandmarks, handLandmarksArray, handAnalyses };
     } catch (error) {
       console.error('Error processing frame:', error);
       return null;
