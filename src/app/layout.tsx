@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { DebugProvider } from '@/context/DebugContext';
 
 export const metadata: Metadata = {
   title: 'Cara de Meme - Filtro de Memes Português',
@@ -30,7 +31,7 @@ export default function RootLayout({
         <meta property="og:type" content="website" />
       </head>
       <body>
-        {children}
+        <DebugProvider>{children}</DebugProvider>
       </body>
     </html>
   );

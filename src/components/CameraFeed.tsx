@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useMediaPipe } from '@/hooks/useMediaPipe';
+import { useDebug } from '@/context/DebugContext';
 
 interface CameraFeedProps {
   onMemeChange: (memeId: string | null) => void;
@@ -60,17 +61,57 @@ export default function CameraFeed({ onMemeChange }: CameraFeedProps) {
     };
   }, []);
 
-  // Process frames for MediaPipe detection
+  const { debug } = useDebug();
+
+  // Draw landmarks onto canvas
+  const drawLandmarks = (landmarks: any[], video: HTMLVideoElement) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !landmarks || !video) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Resize canvas to match video
+    const vw = video.videoWidth || video.clientWidth;
+    const vh = video.videoHeight || video.clientHeight;
+    if (canvas.width !== vw || canvas.height !== vh) {
+      canvas.width = vw;
+      canvas.height = vh;
+    }
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw each landmark as a small circle
+    ctx.fillStyle = 'rgba(0, 200, 255, 0.9)';
+    for (let i = 0; i < landmarks.length; i++) {
+      const p = landmarks[i];
+      const x = p.x * canvas.width;
+      const y = p.y * canvas.height;
+      ctx.beginPath();
+      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+
+  // Process frames for MediaPipe detection and draw landmarks
   useEffect(() => {
     if (!videoRef.current || !isInitialized || loading) return;
 
     const processVideoFrame = () => {
-      processFrame(videoRef.current!);
+      const landmarks = processFrame(videoRef.current!);
+      if (debug && landmarks && canvasRef.current) {
+        drawLandmarks(landmarks, videoRef.current!);
+      } else if (canvasRef.current) {
+        // Clear canvas if debug is off or no landmarks
+        const ctx = canvasRef.current.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
       requestAnimationFrame(processVideoFrame);
     };
 
     processVideoFrame();
-  }, [isInitialized, loading, processFrame]);
+  }, [isInitialized, loading, processFrame, debug]);
 
   if (cameraError) {
     return (
@@ -94,10 +135,10 @@ export default function CameraFeed({ onMemeChange }: CameraFeedProps) {
         className="w-full h-full object-cover"
       />
 
-      {/* Canvas for drawing landmarks (optional - hidden for now) */}
+      {/* Canvas for drawing landmarks */}
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 hidden"
+        className="absolute inset-0 pointer-events-none"
       />
 
       {/* Loading Indicator */}

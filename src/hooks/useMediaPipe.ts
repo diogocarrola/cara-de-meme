@@ -15,6 +15,8 @@ export function useMediaPipe(onMemeChange: (memeId: string | null) => void) {
   const [detectedMeme, setDetectedMeme] = useState<DetectedMeme | null>(null);
   const faceLandmarkerRef = useRef<any>(null);
   const lastMemeIdRef = useRef<string | null>(null);
+  const frameCountRef = useRef(0);
+  const isMobileRef = useRef<boolean>(false);
 
   // Initialize MediaPipe
   useEffect(() => {
@@ -39,6 +41,10 @@ export function useMediaPipe(onMemeChange: (memeId: string | null) => void) {
 
         faceLandmarkerRef.current = faceLandmarker;
         setIsInitialized(true);
+        // Detect roughly if device is mobile (small viewport)
+        if (typeof window !== 'undefined') {
+          isMobileRef.current = window.innerWidth <= 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+        }
       } catch (error) {
         console.error('Failed to initialize MediaPipe:', error);
         setIsInitialized(false);
@@ -56,20 +62,25 @@ export function useMediaPipe(onMemeChange: (memeId: string | null) => void) {
 
   // Process each video frame
   const processFrame = useCallback((videoElement: HTMLVideoElement) => {
-    if (!faceLandmarkerRef.current || !videoElement) return;
+    if (!faceLandmarkerRef.current || !videoElement) return null;
+
+    // Simple frame throttling for mobile devices
+    frameCountRef.current += 1;
+    const isMobile = isMobileRef.current;
+    const throttleFactor = isMobile ? 3 : 1; // process 1/3 frames on mobile
+    if (throttleFactor > 1 && frameCountRef.current % throttleFactor !== 0) {
+      return null;
+    }
 
     try {
       // Get current timestamp
       const now = performance.now();
 
       // Run face detection
-      const results = faceLandmarkerRef.current.detectForVideo(
-        videoElement,
-        now
-      );
+      const results = faceLandmarkerRef.current.detectForVideo(videoElement, now);
 
-      if (results.faceLandmarks.length > 0) {
-        // Get the first face
+      if (results && results.faceLandmarks && results.faceLandmarks.length > 0) {
+        // Get the first face landmarks
         const landmarks = results.faceLandmarks[0];
 
         // Map landmarks to expression and find matching meme
@@ -78,12 +89,12 @@ export function useMediaPipe(onMemeChange: (memeId: string | null) => void) {
 
         if (meme && meme.id !== lastMemeIdRef.current) {
           lastMemeIdRef.current = meme.id;
-          setDetectedMeme({
-            id: meme.id,
-            name: meme.name,
-          });
+          setDetectedMeme({ id: meme.id, name: meme.name });
           onMemeChange(meme.id);
         }
+
+        // Return landmarks for drawing
+        return landmarks;
       } else {
         // No face detected
         if (lastMemeIdRef.current !== null) {
@@ -91,9 +102,11 @@ export function useMediaPipe(onMemeChange: (memeId: string | null) => void) {
           setDetectedMeme(null);
           onMemeChange(null);
         }
+        return null;
       }
     } catch (error) {
       console.error('Error processing frame:', error);
+      return null;
     }
   }, [onMemeChange]);
 

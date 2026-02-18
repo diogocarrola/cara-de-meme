@@ -1,6 +1,7 @@
-'use client';
+"use client";
 
 import { useState } from 'react';
+import { useDebug } from '@/context/DebugContext';
 
 interface ControlsProps {
   isRecording: boolean;
@@ -14,6 +15,7 @@ export default function Controls({
   onClose,
 }: ControlsProps) {
   const [recordingTime, setRecordingTime] = useState(0);
+  const { debug, toggleDebug } = useDebug();
 
   const handleRecord = () => {
     if (!isRecording) {
@@ -77,6 +79,17 @@ export default function Controls({
             className="flex items-center gap-2 px-6 py-2 rounded-lg font-bold bg-gray-600 hover:bg-gray-700 text-white transition"
           >
             ❌ Fechar
+          </button>
+
+          {/* Debug Toggle */}
+          <button
+            onClick={toggleDebug}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition ${
+              debug ? 'bg-yellow-600 text-black' : 'bg-gray-700 text-white'
+            }`}
+            title="Toggle landmark debug overlay"
+          >
+            {debug ? '🔧 Debug ON' : '🔧 Debug OFF'}
           </button>
         </div>
       </div>
